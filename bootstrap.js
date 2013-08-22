@@ -12,21 +12,20 @@
 
 //'use strict';
 
-const{classes:Cc,interfaces:Ci,utils:Cu}=Components;
+const {classes: Cc, interfaces: Ci, utils: Cu } = Components;
 Cu.import('resource://gre/modules/Services.jsm');
-
 
 let WindowListener = {
   
   // based on Private Tab by Infocatcher
   // https://addons.mozilla.org/firefox/addon/private-tab
   _stylesLoaded: false,
-  loadStyles: function(window) {
+  loadStyles: function() {
     if(this._stylesLoaded)
       return;
     this._stylesLoaded = true;
     let sss = this.sss;
-    let cssURI = this.cssURI = this.makeCSSURI(window);
+    let cssURI = this.cssURI = this.makeCSSURI();
     if(!sss.sheetRegistered(cssURI, sss.USER_SHEET))
       sss.loadAndRegisterSheet(cssURI, sss.USER_SHEET);
   },
@@ -43,29 +42,35 @@ let WindowListener = {
     return this.sss = Components.classes["@mozilla.org/content/style-sheet-service;1"]
       .getService(Components.interfaces.nsIStyleSheetService);
   },
-  makeCSSURI: function(window) {     
+  makeCSSURI: function() {     
     return Services.io.newURI("chrome://clicktoplayperelement/content/lightweight.css", null, null);   
   },
   
-  // based on ClickToPlay_per-element.js by Infocatcheron 
+  // based on ClickToPlay_per-element.js by Infocatcher
   // https://gist.github.com/Infocatcher/6117669
   handleEvent: function(aEvent) {
-    let trg = aEvent.originalTarget;
-    if( // I don't know, how do better checks here :(
-      trg.className != "hoverBox"
-      || String.toLowerCase(trg.localName) != "div"
-      || !trg.parentNode
-      || trg.parentNode.className != "mainBox"
-      //|| String.toLowerCase(aEvent.target.localName) != "embed"
-      || !(aEvent.target instanceof Ci.nsIObjectLoadingContent)
-    )
-      return;
-
     let window = aEvent.currentTarget;
     let document = window.document;
-
-    let plugin = document.getBindingParent(trg);
-    //Services.console.logStringMessage("plugin: " + plugin);
+    let plugin = aEvent.target;
+    let doc = plugin.ownerDocument; 
+    
+    if (doc.getAnonymousElementByAttribute(plugin, "class", "mainBox") &&
+        plugin instanceof Ci.nsIObjectLoadingContent) {
+      let eventType = window.gPluginHandler._getBindingType(plugin);
+      if (!eventType)
+        return;
+      switch (eventType) {
+        case "PluginVulnerableNoUpdate":
+        case "PluginClickToPlay":
+          this._overlayClickListener_HandleEvent(window, document, aEvent);
+          break;
+      }
+    }
+  },
+  _overlayClickListener_HandleEvent: function(window, document, aEvent) {
+    let plugin = document.getBindingParent(aEvent.originalTarget);
+    //let pluginName = window.gPluginHandler._getPluginInfo(plugin).pluginName;
+    //this._log("plugin: " + pluginName);
     let contentWindow = plugin.ownerDocument.defaultView.top;
     // gBrowser.getBrowserForDocument does not exist in the case where we
     // drag-and-dropped a tab from a window containing only that tab. In
@@ -96,7 +101,7 @@ let WindowListener = {
     }
   },
   activateSinglePlugin: function PH_activateSinglePlugin(window, aContentWindow, aPlugin) {
-    //Services.console.logStringMessage("activateSinglePlugin()");
+    //this._log("activateSinglePlugin()");
     let objLoadingContent = aPlugin.QueryInterface(Ci.nsIObjectLoadingContent);
     if (window.gPluginHandler.canActivatePlugin(objLoadingContent))
       objLoadingContent.playPlugin();
@@ -126,40 +131,55 @@ let WindowListener = {
     return pluginNeedsActivation;
   },
   
+  _log: function(s) {
+    let date = new Date();
+    let curDate = date.getFullYear() + "-" 
+                  + (date.getMonth() + 1) + "-" 
+                  + date.getDate() + " "
+                  + date.getHours() + ":"
+                  + date.getMinutes() + ":"
+                  + date.getSeconds() + ":"
+                  + date.getMilliseconds();
+    Services.console.logStringMessage("[CtPpe] " + curDate + "\n" + s);
+  },
+  
   setupBrowserUI : function (window) {
-    let document = window.document;
+    //let document = window.document;
     
     if (parseFloat(Services.appinfo.platformVersion) >= 24 &&
-      window.gPluginHandler &&
-      window.gPluginHandler._overlayClickListener &&
-      window.gPluginHandler._overlayClickListener.handleEvent &&
-      !window.gPluginHandler.activateSinglePlugin &&
-      !window.gPluginHandler._pluginNeedsActivationExceptThese) {
-     window.addEventListener("click", WindowListener, true);     
+        window.gPluginHandler &&
+        window.gPluginHandler._overlayClickListener &&
+        window.gPluginHandler._overlayClickListener.handleEvent &&
+        window.gPluginHandler.canActivatePlugin &&
+        window.gPluginHandler._showClickToPlayNotification &&
+        window.gPluginHandler._getBindingType &&       
+        !window.gPluginHandler.activateSinglePlugin &&
+        !window.gPluginHandler._pluginNeedsActivationExceptThese) {
+      window.addEventListener("click", this, true);
+      this.loadStyles();     
     } else {
-      Services.console.logStringMessage('CtPpe: startup error');
+      this._log('startup error');
     }
-
-    this.loadStyles(window);
+    
     // Take any steps to add UI or anything to the browser window
     // document.getElementById() etc. will work here
   },
 
-  tearDownBrowserUI : function (window) {
-    let document = window.document;
-
+  tearDownBrowserUI: function (window) {
+    //let document = window.document;
+    
     if (parseFloat(Services.appinfo.platformVersion) >= 24) {
-      window.removeEventListener("click", WindowListener, true);
+      window.removeEventListener("click", this, true);
+      this.unloadStyles();
     } else {
-      Services.console.logStringMessage('CtPpe: shutdown error');
+      this._log('shutdown error');
     }
     
-    this.unloadStyles(window);
     // Take any steps to remove UI or anything from the browser window
     // document.getElementById() etc. will work here
   },
 
-  // nsIWindowMediatorListener functions
+// nsIWindowMediatorListener functions
   onOpenWindow : function (xulWindow) {
     // A new window has opened
     let domWindow = xulWindow.QueryInterface(Ci.nsIInterfaceRequestor)
