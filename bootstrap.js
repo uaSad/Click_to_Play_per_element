@@ -49,6 +49,15 @@ let WindowListener = {
   // based on ClickToPlay_per-element.js by Infocatcher
   // https://gist.github.com/Infocatcher/6117669
   handleEvent: function(aEvent) {
+    if (this[aEvent.type])
+      this[aEvent.type](aEvent);
+  },
+  unload: function(aEvent) {
+    let window = aEvent.currentTarget;
+    window.removeEventListener("click", this, true);
+    window.removeEventListener(aEvent.type, this, false);
+  },
+  click: function(aEvent) {
     let window = aEvent.currentTarget;
     let document = window.document;
     let plugin = aEvent.target;
@@ -156,6 +165,7 @@ let WindowListener = {
         !window.gPluginHandler.activateSinglePlugin &&
         !window.gPluginHandler._pluginNeedsActivationExceptThese) {
       window.addEventListener("click", this, true);
+      window.addEventListener("unload", this, false);
       this.loadStyles();     
     } else {
       this._log('startup error');
@@ -170,6 +180,7 @@ let WindowListener = {
     
     if (parseFloat(Services.appinfo.platformVersion) >= 24) {
       window.removeEventListener("click", this, true);
+      window.removeEventListener("unload", this, false);
       this.unloadStyles();
     } else {
       this._log('shutdown error');
