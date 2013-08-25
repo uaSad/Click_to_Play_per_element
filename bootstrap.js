@@ -65,6 +65,13 @@ let WindowListener = {
     
     if (doc.getAnonymousElementByAttribute(plugin, "class", "mainBox") &&
         plugin instanceof Ci.nsIObjectLoadingContent) {
+        
+      let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+      if (objLoadingContent.activated) {
+        //this._log("activated"); 
+        return;
+      }
+      
       let eventType = window.gPluginHandler._getBindingType(plugin);
       if (!eventType)
         return;
