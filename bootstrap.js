@@ -68,7 +68,7 @@ let WindowListener = {
         
       let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
       if (objLoadingContent.activated) {
-        //this._log("activated"); 
+        _log("objLoadingContent.activated", "_dbg"); 
         return;
       }
       
@@ -85,8 +85,8 @@ let WindowListener = {
   },
   _overlayClickListener_HandleEvent: function(window, document, aEvent) {
     let plugin = document.getBindingParent(aEvent.originalTarget);
-    //let pluginName = window.gPluginHandler._getPluginInfo(plugin).pluginName;
-    //this._log("plugin: " + pluginName);
+    let pluginName = window.gPluginHandler._getPluginInfo(plugin).pluginName;
+    _log("plugin: " + pluginName);
     let contentWindow = plugin.ownerDocument.defaultView.top;
     // gBrowser.getBrowserForDocument does not exist in the case where we
     // drag-and-dropped a tab from a window containing only that tab. In
@@ -117,7 +117,7 @@ let WindowListener = {
     }
   },
   activateSinglePlugin: function PH_activateSinglePlugin(window, aContentWindow, aPlugin) {
-    //this._log("activateSinglePlugin()");
+    _log("activateSinglePlugin()", "_dbg");
     let objLoadingContent = aPlugin.QueryInterface(Ci.nsIObjectLoadingContent);
     if (window.gPluginHandler.canActivatePlugin(objLoadingContent))
       objLoadingContent.playPlugin();
@@ -146,19 +146,7 @@ let WindowListener = {
 
     return pluginNeedsActivation;
   },
-  
-  _log: function(s) {
-    let date = new Date();
-    let curDate = date.getFullYear() + "-" 
-                  + (date.getMonth() + 1) + "-" 
-                  + date.getDate() + " "
-                  + date.getHours() + ":"
-                  + date.getMinutes() + ":"
-                  + date.getSeconds() + ":"
-                  + date.getMilliseconds();
-    Services.console.logStringMessage("[CtPpe] " + curDate + "\n" + s);
-  },
-  
+
   setupBrowserUI : function (window) {
     //let document = window.document;
     
@@ -175,7 +163,7 @@ let WindowListener = {
       window.addEventListener("unload", this, false);
       this.loadStyles();     
     } else {
-      this._log('startup error');
+      _log("startup error" , "_inf");
     }
     
     // Take any steps to add UI or anything to the browser window
@@ -190,7 +178,7 @@ let WindowListener = {
       window.removeEventListener("unload", this, false);
       this.unloadStyles();
     } else {
-      this._log('shutdown error');
+      _log("shutdown error", "_inf");
     }
     
     // Take any steps to remove UI or anything from the browser window
@@ -257,3 +245,25 @@ function shutdown(data, reason) {
 
 function install(data, reason) {}
 function uninstall(data, reason) {}
+
+let _showMsg = {
+  _inf: true,
+  _dbg: true
+};
+function _time() {
+  let date = new Date();
+  let curDate = date.getFullYear() + "-" 
+                + (date.getMonth() + 1) + "-" 
+                + date.getDate() + " " 
+                + date.getHours() + ":"
+                + date.getMinutes() + ":"
+                + date.getSeconds() + ":"
+                + date.getMilliseconds();
+  return curDate;
+}
+function _log(m, mReason) {
+  if (!_showMsg[mReason])
+    return;
+  let msg = "[CtPpe] " + '"' + mReason + '"' + " " + _time() + " \r\n" + m;
+  Services.console.logStringMessage(msg);
+}
