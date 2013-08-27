@@ -11,7 +11,7 @@
   <!-- Front end metadata -->
   <em:name>Click to Play per-element</em:name>
   <em:version>0.0.3b11.20130827</em:version> 
-  <em:description>Restore "Click to Play" ability of per-element for Firefox 24 and above.</em:description>  
+  <em:description>Restore "Click to Play" ability of per-element for Firefox 24 and above.</em:description>
   <em:creator>uaSad</em:creator>  
   
   <!-- Target application: Mozilla Firefox -->
@@ -23,5 +23,5 @@
     </Description>
   </em:targetApplication>
 
- </Description>      
+ </Description>
 </RDF>
