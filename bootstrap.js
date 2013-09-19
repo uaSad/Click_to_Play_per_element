@@ -248,7 +248,7 @@ function uninstall(data, reason) {}
 
 let _showMsg = {
   _inf: true,
-  _dbg: true
+  _dbg: false
 };
 function _time() {
   let date = new Date();
