@@ -20,8 +20,10 @@ const WINDOW_CLOSED = -2;
 const LOG_PREFIX = "[Click to Play per-element] ";
 const PREF_BRANCH = "extensions.uaSad@ClickToPlayPerElement.";
 const PREF_FILE = "chrome://uasadclicktoplayperelement/content/defaults/preferences/prefs.js";
+const OLD_STYLE_FILE = "chrome://uasadclicktoplayperelement/content/skin/media/oldclicktoplay.css";
 
-const {classes: Cc, interfaces: Ci, utils: Cu } = Components;
+
+const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 Cu.import("resource://gre/modules/Services.jsm");
 let console = (Cu.import("resource://gre/modules/devtools/Console.jsm", {})).console;
 
@@ -95,6 +97,9 @@ var windowsObserver = {
 			case "PluginBindingAttached":
 				this.pluginBindingAttached(e);
 				break;
+			case "click":
+				this.clickHandler(e);
+				break;
 		}
 	},
 	loadHandler: function(e) {
@@ -113,7 +118,30 @@ var windowsObserver = {
 	toggleEventListener: function(window, tReason) {
 		let tListener = (tReason == "add") ? "addEventListener" : "removeEventListener";
 		window[tListener]("unload", this, false);
-		window[tListener]("PluginBindingAttached", this, true, true);
+		let implem = prefs.get("CtPpeImplementation", 0);
+		if (implem == 1)
+			window[tListener]("click", this, true);
+		else if (implem == 2)
+			this.replaceExistingCodeToggle(tReason);
+		else
+			window[tListener]("PluginBindingAttached", this, true, true);
+	},
+	setCtPpeImplementation: function(pVal) {
+		this.windows.forEach(function(window) {
+			if (pVal == 1) {
+				window.removeEventListener("PluginBindingAttached", this, true, true);
+				window.addEventListener("click", this, true);
+				this.replaceExistingCodeToggle("remove");
+			} else if (pVal == 2) {
+				window.removeEventListener("PluginBindingAttached", this, true, true);
+				window.removeEventListener("click", this, true);
+				this.replaceExistingCodeToggle("add");
+			} else {
+				window.addEventListener("PluginBindingAttached", this, true, true);
+				window.removeEventListener("click", this, true);
+				this.replaceExistingCodeToggle("remove");
+			}
+		}, this);
 	},
 
 	initWindow: function(window, reason) {
@@ -176,6 +204,9 @@ var windowsObserver = {
 				this.loadStyles();
 			else
 				this.unloadStyles();
+		} else if (pName == "styles.useOldCSS") {
+			if (prefs.get("styles.enabled"))
+				this.reloadStyles();
 		} else if (pName == "styles.customHoverBackgroundColor" ||
 					pName == "styles.customHoverTextColor") {
 			this.setColor(pName, pVal);
@@ -186,11 +217,8 @@ var windowsObserver = {
 		} else if (pName == "timeout.handleClickToPlayEvent" ||
 					pName == "timeout.showPluginUIEvenIfItsTooBig") {
 			this.setTimeout(pName, pVal);
-		} else if (pName == "play.PLUGIN_VULNERABLE_UPDATABLE" ||
-					pName == "play.PLUGIN_VULNERABLE_NO_UPDATE") {
-			_prefs[pName] = pVal;
-			if (prefs.get("styles.enabled"))
-				this.reloadStyles();
+		} else if (pName == "CtPpeImplementation") {
+			this.setCtPpeImplementation(pVal);
 		}
 	},
 	getTopWindow: function(event) {
@@ -241,25 +269,26 @@ var windowsObserver = {
 		}
 		let pNamesBooleans = [
 			"showPluginUIEvenIfItsTooBig",
-			"play.PLUGIN_VULNERABLE_UPDATABLE",
-			"play.PLUGIN_VULNERABLE_NO_UPDATE",
 			"timeout.add_to_handleClickToPlayEvent",
-			"timeout.add_to_showPluginUIEvenIfItsTooBig"
+			"timeout.add_to_showPluginUIEvenIfItsTooBig",
+			"styles.enabled",
+			"styles.useOldCSS"
 		];
 		for (let i in pNamesBooleans) {
 			let color = prefs.get(pNamesBooleans[i]);
 			if (typeof color != "boolean")
 				prefs.reset(pNamesBooleans[i]);
 		}
+		if (typeof prefs.get("CtPpeImplementation") != "number") {
+			prefs.reset("CtPpeImplementation");
+		}
 		_prefs["showPluginUIEvenIfItsTooBig"] = prefs.get("showPluginUIEvenIfItsTooBig", false);
-		_prefs["play.PLUGIN_VULNERABLE_UPDATABLE"] = prefs.get("play.PLUGIN_VULNERABLE_UPDATABLE", false);
-		_prefs["play.PLUGIN_VULNERABLE_NO_UPDATE"] = prefs.get("play.PLUGIN_VULNERABLE_NO_UPDATE", false);
 		_prefs["timeout.add_to_handleClickToPlayEvent"] = prefs.get("timeout.add_to_handleClickToPlayEvent", true);
 		_prefs["timeout.add_to_showPluginUIEvenIfItsTooBig"] = prefs.get("timeout.add_to_showPluginUIEvenIfItsTooBig", true);
 		_prefs["timeout.handleClickToPlayEvent"] = prefs.get("timeout.handleClickToPlayEvent", 100);
 		_prefs["timeout.showPluginUIEvenIfItsTooBig"] = prefs.get("timeout.showPluginUIEvenIfItsTooBig", 100);
 	},
-	checkColor: function( color) {
+	checkColor: function(color) {
 		if (/^rgb\([0-9]{1,3}, ?[0-9]{1,3}, ?[0-9]{1,3}\)$/.test(color)) {
 			let matchColor = /^rgb\(([0-9]{1,3}), ?([0-9]{1,3}), ?([0-9]{1,3})\)$/.exec(color);
 			if (!matchColor)
@@ -286,7 +315,6 @@ var windowsObserver = {
 		} else if (color == "") {
 			this.reloadStyles();
 		} else {
-			//prefs.reset(pName);
 			this.setResetAfterPause(pName);
 		}
 	},
@@ -304,7 +332,6 @@ var windowsObserver = {
 			prefs.set(pName, timeout);
 			_prefs[pName] = timeout;
 		} else {
-			//prefs.reset(pName);
 			this.setResetAfterPause(pName);
 		}
 	},
@@ -317,7 +344,6 @@ var windowsObserver = {
 		}, 2000);
 	},
 	cancelResetAfterPause: function(owner) {
-		//let window = this.getTopWindow();
 		let window = this.resetAfterPauseWindow;
 		if (window && typeof this.resetAfterPauseTimeoutID == "number") {
 			window.clearTimeout(this.resetAfterPauseTimeoutID);
@@ -360,44 +386,37 @@ var windowsObserver = {
 			.getService(Components.interfaces.nsIStyleSheetService);
 	},
 	makeCSSURI: function() {
-		let setBgColor = prefs.get("styles.customHoverBackgroundColor");
-		let setTColor= prefs.get("styles.customHoverTextColor");
-		if (!setBgColor || setBgColor == "")
-			setBgColor = _prefs["defaultBackgroundColor"];
-		if (!setTColor || setTColor == "")
-			setTColor = _prefs["defaultTextColor"];
+		let cssStr;
 
-		let vulUpd = _prefs["play.PLUGIN_VULNERABLE_UPDATABLE"];
-		let vulNoUpd = _prefs["play.PLUGIN_VULNERABLE_NO_UPDATE"];
+		if (prefs.get("styles.useOldCSS", true)) {
+			cssStr = OLD_STYLE_FILE;
+		} else {
+			let setBgColor = prefs.get("styles.customHoverBackgroundColor");
+			let setTColor= prefs.get("styles.customHoverTextColor");
+			if (!setBgColor || setBgColor == "")
+				setBgColor = _prefs["defaultBackgroundColor"];
+			if (!setTColor || setTColor == "")
+				setTColor = _prefs["defaultTextColor"];
 
-		let cssStr ='\
+			let newCSS = '\
 @namespace url(http://www.w3.org/1999/xhtml);\n\
 :-moz-handler-clicktoplay .mainBox:hover';
-		if (vulUpd) cssStr +=
-',\n\
-:-moz-handler-vulnerable-updatable .mainBox:hover';
-		if (vulNoUpd) cssStr +=
-',\n\
-:-moz-handler-vulnerable-no-update .mainBox:hover';
-		cssStr +=
+			newCSS +=
 ' {\n\
 	background-color: ' + setBgColor + ' !important;\n\
 }\n\
 :-moz-handler-clicktoplay .hoverBox:hover';
-		if (vulUpd) cssStr +=
-',\n\
-:-moz-handler-vulnerable-updatable .hoverBox:hover';
-		if (vulNoUpd) cssStr +=
-',\n\
-:-moz-handler-vulnerable-no-update .hoverBox:hover';
-		cssStr +=
+			newCSS +=
 ' {\n\
 	color: ' + setTColor + ' !important;\n\
 }\n\
 ';
-		return Services.io.newURI("data:text/css," + encodeURIComponent(cssStr), null, null);
+			cssStr = "data:text/css," + encodeURIComponent(newCSS);
+		}
+		return Services.io.newURI(cssStr, null, null);
 	},
 
+	// Implementation - 0 (default)
 	pluginBindingAttached: function(event) {
 		let window;
 		let document;
@@ -435,15 +454,11 @@ var windowsObserver = {
 			console.error(LOG_PREFIX + ex);
 			return;
 		}
-		switch (eventType) {
-			case "PluginVulnerableUpdatable":
-			case "PluginVulnerableNoUpdate":
-			case "PluginClickToPlay":
-				plugin.addEventListener("click", windowsObserver._overlayClickListener, true);
-				if (_prefs["showPluginUIEvenIfItsTooBig"]) {
-					this.showPluginUIEvenIfItsTooBig(window, plugin, overlay);
-				}
-				break;
+		if (eventType == "PluginClickToPlay") {
+			plugin.addEventListener("click", windowsObserver._overlayClickListener, true);
+			if (_prefs["showPluginUIEvenIfItsTooBig"]) {
+				this.showPluginUIEvenIfItsTooBig(window, plugin, overlay);
+			}
 		}
 	},
 	showPluginUIEvenIfItsTooBig: function(window, plugin, overlay) {
@@ -452,7 +467,7 @@ var windowsObserver = {
 			window.setTimeout(function() {
 				try {
 					if (window.gPluginHandler.isTooSmall && overlay &&
-						window.gPluginHandler.isTooSmall(plugin, overlay))
+							window.gPluginHandler.isTooSmall(plugin, overlay))
 						overlay.style.visibility = "visible";
 				} catch (ex) {
 					console.error(LOG_PREFIX + ex);
@@ -461,7 +476,7 @@ var windowsObserver = {
 		} else {
 			try {
 				if (window.gPluginHandler.isTooSmall && overlay &&
-					window.gPluginHandler.isTooSmall(plugin, overlay))
+						window.gPluginHandler.isTooSmall(plugin, overlay))
 					overlay.style.visibility = "visible";
 			} catch (ex) {
 				console.error(LOG_PREFIX + ex);
@@ -470,7 +485,6 @@ var windowsObserver = {
 	},
 	_overlayClickListener: {
 		handleEvent: function PH_handleOverlayClick(aEvent) {
-			aEvent.target.removeEventListener("click", windowsObserver._overlayClickListener, true);
 			let window = windowsObserver.getTopWindow(aEvent);
 			if (!window)
 				return;
@@ -495,16 +509,127 @@ var windowsObserver = {
 				aEvent.button == 0 && aEvent.isTrusted) {
 				// If this isn't a vulnerable plugin, try to activate
 				// just this element without changing any other state.
+				aEvent.target.removeEventListener("click", windowsObserver._overlayClickListener, true);
 				if (!window.gPluginHandler.canActivatePlugin(objLoadingContent))
 					return;
 				if (objLoadingContent.pluginFallbackType ==
-						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE &&
-						!_prefs["play.PLUGIN_VULNERABLE_UPDATABLE"] ||
+						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE ||
 						objLoadingContent.pluginFallbackType ==
-						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE &&
-						!_prefs["play.PLUGIN_VULNERABLE_NO_UPDATE"])
+						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE)
 					return;
 				objLoadingContent.playPlugin();
+				aEvent.stopPropagation();
+				aEvent.preventDefault();
+			}
+		}
+	},
+
+	// Implementation - 1 (maybe this will work if previous won't)
+	clickHandler: function(aEvent) {
+		let window = aEvent.currentTarget;
+		let document = window.document;
+		let plugin = aEvent.target;
+		let doc = plugin.ownerDocument;
+
+		if (!(doc.getAnonymousElementByAttribute(plugin, "class", "mainBox")) &&
+				!(plugin instanceof Ci.nsIObjectLoadingContent)) {
+			return;
+		}
+
+		let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+		if (objLoadingContent.activated) {
+			return;
+		}
+
+		let eventType = window.gPluginHandler._getBindingType(plugin);
+		if (!eventType)
+			return;
+		if (eventType == "PluginClickToPlay") {
+			this._overlayClickListener_HandleEvent(window, document, aEvent);
+		}
+	},
+	_overlayClickListener_HandleEvent: function (window, document, aEvent) {
+		let plugin = document.getBindingParent(aEvent.originalTarget);
+		let contentWindow = plugin.ownerDocument.defaultView.top;
+		// gBrowser.getBrowserForDocument does not exist in the case where we
+		// drag-and-dropped a tab from a window containing only that tab. In
+		// that case, the window gets destroyed.
+		let browser = window.gBrowser.getBrowserForDocument ?
+			window.gBrowser.getBrowserForDocument(contentWindow.document) :
+			null;
+		// If browser is null here, we've been drag-and-dropped from another
+		// window, and this is the wrong click handler.
+		if (!browser) {
+			return;
+		}
+		let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+		// Have to check that the target is not the link to update the plugin
+		if (!(aEvent.originalTarget instanceof window.HTMLAnchorElement) &&
+			(aEvent.originalTarget.getAttribute('anonid') != 'closeIcon') &&
+			aEvent.button == 0 && aEvent.isTrusted) {
+			// If this isn't a vulnerable plugin, try to activate
+			// just this element without changing any other state.
+			if (!window.gPluginHandler.canActivatePlugin(objLoadingContent))
+					return;
+			if (objLoadingContent.pluginFallbackType ==
+					Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE ||
+					objLoadingContent.pluginFallbackType ==
+					Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE)
+				return;
+			objLoadingContent.playPlugin();
+			aEvent.stopPropagation();
+			aEvent.preventDefault();
+		}
+	},
+
+	// Implementation - 2
+	replaceExistingCode_Original: {},
+	replaceExistingCodeToggle: function (tReason) {
+		this.windows.forEach(function(window) {
+			if (tReason == "add" &&
+					window.gPluginHandler &&
+					window.gPluginHandler._overlayClickListener &&
+					window.gPluginHandler._overlayClickListener.handleEvent) {
+				this.replaceExistingCode_Original = window.gPluginHandler._overlayClickListener.handleEvent;
+				this.replaceExistingCode(window);
+			} else if (tReason == "remove" &&
+					this.replaceExistingCode_Original) {
+				window.gPluginHandler._overlayClickListener.handleEvent = this.replaceExistingCode_Original;
+			}
+		}, this);
+	},
+	replaceExistingCode: function(window) {
+		window.gPluginHandler._overlayClickListener.handleEvent = function PH_handleOverlayClick(aEvent) {
+			let plugin = window.document.getBindingParent(aEvent.target);
+			let contentWindow = plugin.ownerDocument.defaultView.top;
+			// gBrowser.getBrowserForDocument does not exist in the case where we
+			// drag-and-dropped a tab from a window containing only that tab. In
+			// that case, the window gets destroyed.
+			let browser = window.gBrowser.getBrowserForDocument ?
+				window.gBrowser.getBrowserForDocument(contentWindow.document) :
+				null;
+			// If browser is null here, we've been drag-and-dropped from another
+			// window, and this is the wrong click handler.
+			if (!browser) {
+				aEvent.target.removeEventListener("click", window.gPluginHandler._overlayClickListener, true);
+				return;
+			}
+			let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
+			// Have to check that the target is not the link to update the plugin
+			if (!(aEvent.originalTarget instanceof window.HTMLAnchorElement) &&
+					(aEvent.originalTarget.getAttribute('anonid') != 'closeIcon') &&
+					aEvent.button == 0 && aEvent.isTrusted) {
+				// If this isn't a vulnerable plugin, try to activate
+				// just this element without changing any other state.
+				if (window.gPluginHandler.canActivatePlugin(objLoadingContent) &&
+						objLoadingContent.pluginFallbackType !=
+						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE &&
+						objLoadingContent.pluginFallbackType !=
+						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE) {
+					objLoadingContent.playPlugin();
+				} else {
+					window.gPluginHandler._showClickToPlayNotification(browser, plugin);
+				}
 				aEvent.stopPropagation();
 				aEvent.preventDefault();
 			}
@@ -553,7 +678,9 @@ let prefs = {
 		let defaultBranch = Services.prefs.getDefaultBranch("");
 		let prefsFile = PREF_FILE;
 		let prefs = this;
-		Services.scriptloader.loadSubScript(prefsFile, {
+		let o = {};
+		Components.utils.import("resource://gre/modules/Services.jsm", o);
+		o.Services.scriptloader.loadSubScript(prefsFile, {
 			pref: function(pName, val) {
 				let pType = defaultBranch.getPrefType(pName);
 				if(pType != defaultBranch.PREF_INVALID && pType != prefs.getValueType(val)) {
@@ -661,7 +788,5 @@ let _prefs = {
 	"timeout.add_to_handleClickToPlayEvent": true,
 	"timeout.add_to_showPluginUIEvenIfItsTooBig": true,
 	"timeout.handleClickToPlayEvent": 100,
-	"timeout.showPluginUIEvenIfItsTooBig": 100,
-	"play.PLUGIN_VULNERABLE_UPDATABLE": false,
-	"play.PLUGIN_VULNERABLE_NO_UPDATE": false
+	"timeout.showPluginUIEvenIfItsTooBig": 100
 };
