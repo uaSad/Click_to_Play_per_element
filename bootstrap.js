@@ -548,7 +548,7 @@ var windowsObserver = {
 			this._overlayClickListener_HandleEvent(window, document, aEvent);
 		}
 	},
-	_overlayClickListener_HandleEvent: function (window, document, aEvent) {
+	_overlayClickListener_HandleEvent: function(window, document, aEvent) {
 		let plugin = document.getBindingParent(aEvent.originalTarget);
 		let contentWindow = plugin.ownerDocument.defaultView.top;
 		// gBrowser.getBrowserForDocument does not exist in the case where we
@@ -584,7 +584,7 @@ var windowsObserver = {
 
 	// Implementation - 2
 	replaceExistingCode_Original: {},
-	replaceExistingCodeToggle: function (tReason) {
+	replaceExistingCodeToggle: function(tReason) {
 		this.windows.forEach(function(window) {
 			if (tReason == "add" &&
 					window.gPluginHandler &&
@@ -748,20 +748,20 @@ let prefs = {
 		return Services.prefs.PREF_STRING;
 
 	},
-	has: function (pName, comBranch) {
+	has: function(pName, comBranch) {
 		return this._has(pName, comBranch);
 	},
-	_has: function (pName, comBranch) {
+	_has: function(pName, comBranch) {
 		let ps = Services.prefs;
 		if (!comBranch)
 			pName = this.ns + pName;
 		return (ps.getPrefType(pName) != Ci.nsIPrefBranch.PREF_INVALID);
 	},
-	reset : function (pName, comBranch) {
+	reset : function(pName, comBranch) {
 		if (this.has(pName, comBranch))
 			this._reset(pName);
 	},
-	_reset: function (pName, comBranch) {
+	_reset: function(pName, comBranch) {
 		let ps = Services.prefs;
 		if (!comBranch)
 			pName = this.ns + pName;
