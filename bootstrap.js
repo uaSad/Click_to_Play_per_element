@@ -44,56 +44,48 @@ function shutdown(params, reason) {
 
 let windowsObserver = {
 	initialized: false,
+	appVersion: 0,
 	init: function(reason) {
 		if (this.initialized)
 			return;
 		this.initialized = true;
-		if (24 > parseFloat(Services.appinfo.platformVersion)) {
+		this.appVersion = parseFloat(Services.appinfo.platformVersion);
+		if (this.appVersion < 24) {
 			Cu.reportError(LOG_PREFIX + "startup error: version");
 			return;
 		}
 		prefs.init();
+		_dbg = prefs.get("debug", false);
 		this.checkPrefs();
-
 		this.windows.forEach(function(window) {
 			this.initWindow(window, reason);
 		}, this);
 		Services.ww.registerNotification(this);
+		if (prefs.get("styles.enabled"))
+				this.loadStyles();
 	},
 	destroy: function(reason) {
 		if (!this.initialized)
 			return;
 		this.initialized = false;
-		this.windows.forEach(function(window) {
-			this.destroyWindow(window, reason);
-		}, this);
 		Services.ww.unregisterNotification(this);
 		if (reason != APP_SHUTDOWN) {
 			this.unloadStyles();
+			Services.obs.notifyObservers(null, "uasad-ctppe", "shutdown");
 		}
 		prefs.destroy();
 	},
 
 	observe: function(subject, topic, data) {
-		if (topic == "domwindowopened")
+		if (topic == "domwindowopened") {
 			subject.addEventListener("load", this, false);
-		else if (topic == "domwindowclosed")
-			this.destroyWindow(subject, WINDOW_CLOSED);
+		}
 	},
 
 	handleEvent: function(event) {
 		switch (event.type) {
 			case "load":
 				this.loadHandler(event);
-				break;
-			case "unload":
-				this.windowClosingHandler(event);
-				break;
-			case "PluginBindingAttached":
-				this.pluginBindingAttached(event);
-				break;
-			case "click":
-				this.clickHandler(event);
 				break;
 		}
 	},
@@ -102,60 +94,20 @@ let windowsObserver = {
 		window.removeEventListener("load", this, false);
 		this.initWindow(window, WINDOW_LOADED);
 	},
-	windowClosingHandler: function(event) {
-		let window = event.currentTarget;
-		this.destroyWindowClosingHandler(window);
-	},
-	destroyWindowClosingHandler: function(window) {
-		this.toggleEventListener(window, "remove");
-	},
-
-	toggleEventListener: function(window, tReason) {
-		let tListener = (tReason == "add") ? "addEventListener" : "removeEventListener";
-		window[tListener]("unload", this, false);
-		let implem = prefs.get("CtPpeImplementation", 0);
-		if (implem == 1)
-			window[tListener]("click", this, true);
-		else
-			window[tListener]("PluginBindingAttached", this, true, true);
-	},
-	setCtPpeImplementation: function(pVal) {
-		this.windows.forEach(function(window) {
-			if (pVal == 1) {
-				window.removeEventListener("PluginBindingAttached", this, true, true);
-				window.addEventListener("click", this, true);
-			} else {
-				window.addEventListener("PluginBindingAttached", this, true, true);
-				window.removeEventListener("click", this, true);
-			}
-		}, this);
-	},
 
 	initWindow: function(window, reason) {
 		if (reason == WINDOW_LOADED && !this.isTargetWindow(window)) {
 			return;
 		}
-		if (window.gPluginHandler &&
-				window.gPluginHandler._overlayClickListener &&
-				window.gPluginHandler._overlayClickListener.handleEvent &&
-				window.gPluginHandler.canActivatePlugin &&
-				window.gPluginHandler._getBindingType) {
-			this.toggleEventListener(window, "add");
-			if (prefs.get("styles.enabled"))
-				this.loadStyles();
+		let {gPluginHandler} = window;
+		if (gPluginHandler &&
+				gPluginHandler._overlayClickListener &&
+				gPluginHandler._overlayClickListener.handleEvent &&
+				gPluginHandler.canActivatePlugin &&
+				gPluginHandler._getBindingType) {
+			let CTPpe = new CTPpeChrome(window);
 		} else {
 			Cu.reportError(LOG_PREFIX + "startup error: gPluginHandler");
-		}
-	},
-	destroyWindow: function(window, reason) {
-		window.removeEventListener("load", this, false); // Window can be closed before "load"
-		if (reason == WINDOW_CLOSED && !this.isTargetWindow(window))
-			return;
-		if (reason != WINDOW_CLOSED) {
-			// See resource:///modules/sessionstore/SessionStore.jsm
-			// "domwindowclosed" => onClose() => "SSWindowClosing"
-			// This may happens after our "domwindowclosed" notification!
-			this.destroyWindowClosingHandler(window);
 		}
 	},
 	get windows() {
@@ -169,7 +121,7 @@ let windowsObserver = {
 		return windows;
 	},
 	isTargetWindow: function(window) {
-		let document = window.document;
+		let {document} = window;
 		/*let rs = document.readyState;
 		// We can't touch document.documentElement in not yet loaded window!
 		// See https://github.com/Infocatcher/Private_Tab/issues/61
@@ -190,15 +142,11 @@ let windowsObserver = {
 		} else if (pName == "styles.customHoverBackgroundColor" ||
 					pName == "styles.customHoverTextColor") {
 			this.setColor(pName, pVal);
-		} else if (pName == "timeout.add_to_handleClickToPlayEvent") {
-			_prefs[pName] = pVal;
-		} else if (pName == "timeout.handleClickToPlayEvent") {
-			this.setTimeout(pName, pVal);
-		} else if (pName == "CtPpeImplementation") {
-			this.setCtPpeImplementation(pVal);
-		} else if (pName == "hidePluginNotifications") {
+		} else if (pName == "styles.hidePluginNotifications") {
 			if (prefs.get("styles.enabled"))
 				this.reloadStyles();
+		} else if (pName == "debug") {
+			_dbg = pVal;
 		}
 	},
 
@@ -208,31 +156,8 @@ let windowsObserver = {
 		let window = wm.getMostRecentWindow("navigator:browser");
 		return window;
 	},
-	get dwu() {
-		delete this.dwu;
-		return this.dwu = Components.classes["@mozilla.org/inspector/dom-utils;1"]
-			.getService(Components.interfaces.inIDOMUtils);
-	},
-	getTopWindow: function(event) {
-		let window = event.currentTarget.ownerDocument.defaultView.top;
-		for (;;) {
-			let browser = this.dwu.getParentForNode(window.document, true);
-			if (!browser)
-				break;
-			window = browser.ownerDocument.defaultView.top;
-		}
-		return window;
-	},
 
 	checkPrefs: function() {
-		let pNamesTimeouts = [
-			"timeout.handleClickToPlayEvent"
-		];
-		for (let i in pNamesTimeouts) {
-			let timeout = prefs.get(pNamesTimeouts[i]);
-			if (!this.checkTimeout(timeout))
-				prefs.reset(pNamesTimeouts[i]);
-		}
 		let pNamesColors = [
 			"styles.customHoverBackgroundColor",
 			"styles.customHoverTextColor"
@@ -243,21 +168,16 @@ let windowsObserver = {
 				prefs.reset(pNamesColors[i]);
 		}
 		let pNamesBooleans = [
-			"timeout.add_to_handleClickToPlayEvent",
 			"styles.enabled",
 			"styles.useOldCSS",
-			"hidePluginNotifications"
+			"styles.hidePluginNotifications",
+			"debug"
 		];
 		for (let i in pNamesBooleans) {
 			let color = prefs.get(pNamesBooleans[i]);
 			if (typeof color != "boolean")
 				prefs.reset(pNamesBooleans[i]);
 		}
-		if (typeof prefs.get("CtPpeImplementation") != "number") {
-			prefs.reset("CtPpeImplementation");
-		}
-		_prefs["timeout.add_to_handleClickToPlayEvent"] = prefs.get("timeout.add_to_handleClickToPlayEvent", false);
-		_prefs["timeout.handleClickToPlayEvent"] = prefs.get("timeout.handleClickToPlayEvent", 100);
 	},
 	checkColor: function(color) {
 		if (/^rgb\([0-9]{1,3}, ?[0-9]{1,3}, ?[0-9]{1,3}\)$/.test(color)) {
@@ -288,29 +208,12 @@ let windowsObserver = {
 			this.setResetAfterPause(pName);
 		}
 	},
-	checkTimeout: function(timeout) {
-		if (typeof timeout == "number" &&
-		  0 <= timeout && timeout <= 5000)
-			return true;
-		else
-			return false;
-	},
-	setTimeout: function(pName, timeout) {
-		this.cancelResetAfterPause();
-		if (this.checkTimeout(timeout)) {
-			prefs.set(pName, timeout);
-			_prefs[pName] = timeout;
-		} else {
-			this.setResetAfterPause(pName);
-		}
-	},
 	setResetAfterPause: function(pName) {
 		let window = this.getMostRecentWindow();
 		this.resetAfterPauseWindow = window;
-		let _this = this;
 		this.resetAfterPauseTimeoutID = window.setTimeout(function() {
-			_this.resetAfterPause.call(_this, pName);
-		}, 2000);
+			this.resetAfterPause(pName);
+		}.bind(this), 1500);
 	},
 	cancelResetAfterPause: function() {
 		let window = this.resetAfterPauseWindow;
@@ -406,7 +309,7 @@ let windowsObserver = {
 ';
 		}
 
-		let hidePluginNotifications = prefs.get("hidePluginNotifications", false);
+		let hidePluginNotifications = prefs.get("styles.hidePluginNotifications", false);
 		if (hidePluginNotifications) {
 			let pluginHidden = '\
 \n\
@@ -417,148 +320,172 @@ xul|notification[value="plugin-hidden"] {\n\
 			cssStr += pluginHidden;
 		}
 		return Services.io.newURI("data:text/css," + encodeURIComponent(cssStr), null, null);
+	}
+};
+
+function CTPpeChrome(window) {
+	this.window = window;
+	this.init();
+}
+
+CTPpeChrome.prototype = {
+	window: null,
+
+	init: function(event) {
+		let {window} = this;
+		let {gBrowser} = window;
+		window.addEventListener("unload", this, false);
+		gBrowser.addEventListener("PluginBindingAttached", this, true, true);
+		Services.obs.addObserver(this, "uasad-ctppe", false);
+
+		_dbg && console.log(LOG_PREFIX + "CTPpeChrome.init()");
+	},
+	destroy: function(event) {
+		let {window} = this;
+		let {gBrowser} = window;;
+		window.removeEventListener("unload", this, false);
+		gBrowser.removeEventListener("PluginBindingAttached", this, true, true);
+		Services.obs.removeObserver(this, "uasad-ctppe", false);
+
+		this.window = null;
+
+		_dbg && console.log(LOG_PREFIX + "CTPpeChrome.destroy()");
+	},
+	shutdown: function() {
+		this.destroy();
+
+		_dbg && console.log(LOG_PREFIX + "CTPpeChrome.shutdown()");
 	},
 
-	//
-	getPluginUI: function(plugin, doc) {
-		return doc.getAnonymousElementByAttribute(plugin, "anonid", "main") ||
-					doc.getAnonymousElementByAttribute(plugin, "class", "mainBox");
+	observe: function(subject, topic, data) {
+		if (topic != "uasad-ctppe")
+			return;
+		if (data == "shutdown")
+			this.shutdown();
 	},
 
-	// Implementation - 0 (default)
-	pluginBindingAttached: function(event) {
-		let window;
-		let document;
-		let plugin;
-		let doc;
-		try {
-			window = event.currentTarget;
-			document = window.document;
-			plugin = event.target;
-			doc = plugin.ownerDocument;
-			let _this = this;
-			if (_prefs["timeout.add_to_handleClickToPlayEvent"]) {
-				let timeout = _prefs["timeout.handleClickToPlayEvent"] || 100;
+	handleEvent: function(event) {
+		switch (event.type) {
+			case "unload":
+				this.destroy(event);
+				break;
+			case "PluginBindingAttached":
+				let {window} = this;
 				window.setTimeout(function() {
-					_this._handleClickToPlayEvent.call(_this, window, document, plugin, doc);
-				}, timeout);
-			} else
-				this._handleClickToPlayEvent(window, document, plugin, doc);
-		} catch (ex) {
-			console.error(LOG_PREFIX + ex);
+					this.pluginBindingAttached(event);
+				}.bind(this), 1);
+				break;
 		}
 	},
-	_handleClickToPlayEvent: function PH_handleClickToPlayEvent(window, document, plugin, doc) {
-		let overlay;
-		let eventType;
-		try {
-			overlay = this.getPluginUI(plugin, doc);
-			if (!overlay && !(plugin instanceof Ci.nsIObjectLoadingContent)) {
-				console.error(LOG_PREFIX + "_handleClickToPlayEvent(): overlay", overlay);
-				return;
-			}
-			eventType = window.gPluginHandler._getBindingType(plugin);
-		} catch (ex) {
-			console.error(LOG_PREFIX + ex);
+
+	// fallback
+	getPluginUI: function(plugin, doc) {
+		return doc.getAnonymousElementByAttribute(plugin, "class", "mainBox") ||
+				doc.getAnonymousElementByAttribute(plugin, "anonid", "main");
+	},
+
+	pluginBindingAttached: function(event) {
+		let {window} = this;
+		let {gPluginHandler} = window;
+		let eventType = event.type;
+		if (eventType == "PluginRemoved") {
 			return;
 		}
-		if (eventType == "PluginClickToPlay") {
-			plugin.addEventListener("click", windowsObserver._overlayClickListener, true);
+		let plugin = event.target;
+		let doc = plugin.ownerDocument;
+		if (!(plugin instanceof Ci.nsIObjectLoadingContent))
+			return;
+		if (eventType == "PluginBindingAttached") {
+			// The plugin binding fires this event when it is created.
+			// As an untrusted event, ensure that this object actually has a binding
+			// and make sure we don't handle it twice
+			let overlay = gPluginHandler.getPluginUI(plugin, "main") ||
+							this.getPluginUI(plugin, doc);
+			if (!overlay) {
+				return;
+			}
+			// Lookup the handler for this binding
+			eventType = gPluginHandler._getBindingType(plugin);
+			if (!eventType) {
+				// Not all bindings have handlers
+				return;
+			}
 		}
+		if (eventType == "PluginClickToPlay") {
+			this._handleClickToPlayEvent(plugin);
+		}
+
+		_dbg && console.log(LOG_PREFIX + "CTPpeChrome.pluginBindingAttached()");
+	},
+	_handleClickToPlayEvent: function PH_handleClickToPlayEvent(aPlugin) {
+		let {window} = this;
+		let {gBrowser, gPluginHandler} = window;
+		let doc = aPlugin.ownerDocument;
+		let browser = gBrowser.getBrowserForDocument(doc.defaultView.top.document);
+		let objLoadingContent = aPlugin.QueryInterface(Ci.nsIObjectLoadingContent);
+		// guard against giving pluginHost.getPermissionStringForType a type
+		// not associated with any known plugin
+		if (!gPluginHandler.isKnownPlugin(objLoadingContent))
+			return;
+		let overlay = gPluginHandler.getPluginUI(aPlugin, "main") ||
+							this.getPluginUI(aPlugin, doc);
+		if (overlay) {
+			this._overlayClickListener.CTPpe = this;
+			overlay.addEventListener("click", this._overlayClickListener, true);
+			if (windowsObserver.appVersion >= 27)
+				overlay.removeEventListener("click", gPluginHandler._overlayClickListener, true);
+		}
+
+		_dbg && console.log(LOG_PREFIX + "CTPpeChrome._handleClickToPlayEvent()");
 	},
 	_overlayClickListener: {
 		handleEvent: function PH_handleOverlayClick(aEvent) {
-			let window = windowsObserver.getTopWindow(aEvent);
-			if (!window)
-				return;
+			let {CTPpe} = this;
+			let {window} = CTPpe;
+			let {gBrowser, gPluginHandler, PopupNotifications, HTMLAnchorElement} = window;
 			let document = window.document;
-			let plugin = document.getBindingParent(aEvent.originalTarget);
+			let plugin = document.getBindingParent(aEvent.target);
 			let contentWindow = plugin.ownerDocument.defaultView.top;
 			// gBrowser.getBrowserForDocument does not exist in the case where we
 			// drag-and-dropped a tab from a window containing only that tab. In
 			// that case, the window gets destroyed.
-			let browser = window.gBrowser.getBrowserForDocument ?
-				window.gBrowser.getBrowserForDocument(contentWindow.document) :
+			let browser = gBrowser.getBrowserForDocument ?
+				gBrowser.getBrowserForDocument(contentWindow.document) :
 				null;
 			// If browser is null here, we've been drag-and-dropped from another
 			// window, and this is the wrong click handler.
 			if (!browser) {
+				aEvent.target.removeEventListener("click", CTPpe._overlayClickListener, true);
 				return;
 			}
 			let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
 			// Have to check that the target is not the link to update the plugin
-			if (!(aEvent.originalTarget instanceof window.HTMLAnchorElement) &&
-				(aEvent.originalTarget.getAttribute('anonid') != 'closeIcon') &&
-				aEvent.button == 0 && aEvent.isTrusted) {
-				// If this isn't a vulnerable plugin, try to activate
-				// just this element without changing any other state.
-				aEvent.target.removeEventListener("click", windowsObserver._overlayClickListener, true);
-				if (!window.gPluginHandler.canActivatePlugin(objLoadingContent))
-					return;
-				if (objLoadingContent.pluginFallbackType ==
-						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE ||
-						objLoadingContent.pluginFallbackType ==
-						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE)
-					return;
-				objLoadingContent.playPlugin();
+			if (!(aEvent.originalTarget instanceof HTMLAnchorElement) &&
+					(aEvent.originalTarget.getAttribute('anonid') != 'closeIcon') &&
+					aEvent.button == 0 && aEvent.isTrusted) {
+				if (gPluginHandler.canActivatePlugin(objLoadingContent) &&
+						objLoadingContent.pluginFallbackType !=
+						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE &&
+						objLoadingContent.pluginFallbackType !=
+						Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE) {
+					objLoadingContent.playPlugin();
+					if (windowsObserver.appVersion < 27) {
+						window.setTimeout(function() {
+							let notification = PopupNotifications.getNotification("click-to-play-plugins", browser);
+							if (notification) {
+								notification.remove();
+							}
+						}.bind(this), 1);
+					}
+				} else {
+					if (windowsObserver.appVersion >= 27)
+						gPluginHandler._showClickToPlayNotification(browser, plugin);
+				}
 				aEvent.stopPropagation();
 				aEvent.preventDefault();
 			}
-		}
-	},
 
-	// Implementation - 1 (maybe this will work if previous won't)
-	clickHandler: function(aEvent) {
-		let window = aEvent.currentTarget;
-		let document = window.document;
-		let plugin = aEvent.target;
-		let doc = plugin.ownerDocument;
-		let overlay = this.getPluginUI(plugin, doc);
-		if (!overlay && !(plugin instanceof Ci.nsIObjectLoadingContent)) {
-			return;
-		}
-		let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
-		if (objLoadingContent.activated) {
-			return;
-		}
-		let eventType = window.gPluginHandler._getBindingType(plugin);
-		if (!eventType)
-			return;
-		if (eventType == "PluginClickToPlay") {
-			this._overlayClickListener_HandleEvent(window, document, aEvent);
-		}
-	},
-	_overlayClickListener_HandleEvent: function(window, document, aEvent) {
-		let plugin = document.getBindingParent(aEvent.originalTarget);
-		let contentWindow = plugin.ownerDocument.defaultView.top;
-		// gBrowser.getBrowserForDocument does not exist in the case where we
-		// drag-and-dropped a tab from a window containing only that tab. In
-		// that case, the window gets destroyed.
-		let browser = window.gBrowser.getBrowserForDocument ?
-			window.gBrowser.getBrowserForDocument(contentWindow.document) :
-			null;
-		// If browser is null here, we've been drag-and-dropped from another
-		// window, and this is the wrong click handler.
-		if (!browser) {
-			return;
-		}
-		let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
-		// Have to check that the target is not the link to update the plugin
-		if (!(aEvent.originalTarget instanceof window.HTMLAnchorElement) &&
-			(aEvent.originalTarget.getAttribute('anonid') != 'closeIcon') &&
-			aEvent.button == 0 && aEvent.isTrusted) {
-			// If this isn't a vulnerable plugin, try to activate
-			// just this element without changing any other state.
-			if (!window.gPluginHandler.canActivatePlugin(objLoadingContent))
-					return;
-			if (objLoadingContent.pluginFallbackType ==
-					Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_UPDATABLE ||
-					objLoadingContent.pluginFallbackType ==
-					Ci.nsIObjectLoadingContent.PLUGIN_VULNERABLE_NO_UPDATE)
-				return;
-			objLoadingContent.playPlugin();
-			aEvent.stopPropagation();
-			aEvent.preventDefault();
+			_dbg && console.log(LOG_PREFIX + "CTPpeChrome._overlayClickListener()");
 		}
 	}
 };
@@ -603,9 +530,7 @@ let prefs = {
 		let defaultBranch = Services.prefs.getDefaultBranch("");
 		let prefsFile = PREF_FILE;
 		let prefs = this;
-		let o = {};
-		Components.utils.import("resource://gre/modules/Services.jsm", o);
-		o.Services.scriptloader.loadSubScript(prefsFile, {
+		let scope = {
 			pref: function(pName, val) {
 				let pType = defaultBranch.getPrefType(pName);
 				if (pType != defaultBranch.PREF_INVALID && pType != prefs.getValueType(val)) {
@@ -617,7 +542,10 @@ let prefs = {
 				}
 				prefs.setPref(pName, val, defaultBranch);
 			}
-		});
+		};
+		Services.scriptloader.loadSubScript(prefsFile, scope);
+
+		_dbg && console.log(LOG_PREFIX + "prefs.loadDefaultPrefs()");
 	},
 
 	_cache: { __proto__: null },
@@ -673,23 +601,21 @@ let prefs = {
 		return Services.prefs.PREF_STRING;
 
 	},
-	has: function(pName, comBranch) {
-		return this._has(pName, comBranch);
+	has: function(pName) {
+		return this._has(pName);
 	},
-	_has: function(pName, comBranch) {
+	_has: function(pName) {
 		let ps = Services.prefs;
-		if (!comBranch)
-			pName = this.ns + pName;
+		pName = this.ns + pName;
 		return (ps.getPrefType(pName) != Ci.nsIPrefBranch.PREF_INVALID);
 	},
-	reset: function(pName, comBranch) {
-		if (this.has(pName, comBranch))
+	reset: function(pName) {
+		if (this.has(pName))
 			this._reset(pName);
 	},
-	_reset: function(pName, comBranch) {
+	_reset: function(pName) {
 		let ps = Services.prefs;
-		if (!comBranch)
-			pName = this.ns + pName;
+		pName = this.ns + pName;
 		try {
 			ps.clearUserPref(pName);
 		} catch (ex) {
@@ -708,7 +634,9 @@ let prefs = {
 
 let _prefs = {
 	"defaultBackgroundColor": "rgb(142,142,142)",
-	"defaultTextColor": "rgb(0,0,0)",
-	"timeout.add_to_handleClickToPlayEvent": false,
-	"timeout.handleClickToPlayEvent": 100
+	"defaultTextColor": "rgb(0,0,0)"
 };
+
+// Be careful, loggers always works until prefs aren't initialized
+// (and if "debug" preference has default value)
+let _dbg = true;
