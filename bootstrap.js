@@ -28,9 +28,6 @@ const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 Cu.import('resource://gre/modules/Services.jsm');
 let console = (Cu.import('resource://gre/modules/devtools/Console.jsm', {})).console;
 
-function getRandomInt(min, max) Math.floor(Math.random() * (max - min + 1)) + min;
-const SESSION_ID = '_' + getRandomInt(1e10, 1e11);
-
 function install(params, reason) {
 }
 function uninstall(params, reason) {
@@ -71,18 +68,21 @@ let windowsObserver = {
 		if (!this.initialized)
 			return;
 		this.initialized = false;
+		this.windows.forEach(function(window) {
+			this.destroyWindow(window, reason);
+		}, this);
 		Services.ww.unregisterNotification(this);
 		if (reason != APP_SHUTDOWN) {
 			this.unloadStyles();
-			Services.obs.notifyObservers(null, 'uasad-ctppe' + SESSION_ID, 'shutdown');
 		}
 		prefs.destroy();
 	},
 
 	observe: function(subject, topic, data) {
-		if (topic == 'domwindowopened') {
+		if (topic == 'domwindowopened')
 			subject.addEventListener('load', this, false);
-		}
+		else if (topic == 'domwindowclosed')
+			this.destroyWindow(subject, WINDOW_CLOSED);
 	},
 
 	handleEvent: function(event) {
@@ -90,12 +90,27 @@ let windowsObserver = {
 			case 'load':
 				this.loadHandler(event);
 				break;
+			case 'unload':
+				this.windowClosingHandler(event);
+				break;
+			case 'PluginBindingAttached':
+				this.pluginBindingAttached(event);
+				break;
 		}
 	},
 	loadHandler: function(event) {
 		let window = event.originalTarget.defaultView;
 		window.removeEventListener('load', this, false);
 		this.initWindow(window, WINDOW_LOADED);
+	},
+	windowClosingHandler: function(event) {
+		let window = event.currentTarget;
+		this.destroyWindowClosingHandler(window);
+	},
+	destroyWindowClosingHandler: function(window) {
+		let {gBrowser} = window;
+		window.removeEventListener('unload', this, false);
+		gBrowser.removeEventListener('PluginBindingAttached', this, true, true);
 	},
 
 	initWindow: function(window, reason) {
@@ -108,11 +123,25 @@ let windowsObserver = {
 				'handleEvent' in gPluginHandler._overlayClickListener &&
 				'canActivatePlugin' in gPluginHandler &&
 				'_getBindingType' in gPluginHandler) {
-			let CTPpe = new CTPpeChrome(window);
+			let {gBrowser} = window;
+			window.addEventListener('unload', this, false);
+			gBrowser.addEventListener('PluginBindingAttached', this, true, true);
 		} else {
 			Cu.reportError(LOG_PREFIX + 'startup error: gPluginHandler');
 		}
 	},
+	destroyWindow: function(window, reason) {
+		window.removeEventListener('load', this, false); // Window can be closed before "load"
+		if (reason == WINDOW_CLOSED && !this.isTargetWindow(window))
+			return;
+		if (reason != WINDOW_CLOSED) {
+			// See resource:///modules/sessionstore/SessionStore.jsm
+			// "domwindowclosed" => onClose() => "SSWindowClosing"
+			// This may happens after our "domwindowclosed" notification!
+			this.destroyWindowClosingHandler(window);
+		}
+	},
+
 	get windows() {
 		let windows = [];
 		let ws = Services.wm.getEnumerator('navigator:browser');
@@ -150,6 +179,8 @@ let windowsObserver = {
 				this.reloadStyles();
 		} else if (pName == 'debug') {
 			_dbg = pVal;
+		} else if (pName == 'showPluginUIEvenIfItsTooBig') {
+			_prefs['showPluginUIEvenIfItsTooBig'] = pVal;
 		}
 	},
 
@@ -174,13 +205,15 @@ let windowsObserver = {
 			'styles.enabled',
 			'styles.useOldCSS',
 			'styles.hidePluginNotifications',
+			'showPluginUIEvenIfItsTooBig',
 			'debug'
 		];
 		for (let i = 0, len = pNamesBooleans.length; i < len; i++) {
-			let color = prefs.get(pNamesBooleans[i]);
-			if (typeof color != 'boolean')
+			let pVal = prefs.get(pNamesBooleans[i]);
+			if (typeof pVal != 'boolean')
 				prefs.reset(pNamesBooleans[i]);
 		}
+		_prefs['showPluginUIEvenIfItsTooBig'] = prefs.get('showPluginUIEvenIfItsTooBig', false);
 	},
 	checkColor: function(color) {
 		if (/^rgb\([0-9]{1,3}, ?[0-9]{1,3}, ?[0-9]{1,3}\)$/.test(color)) {
@@ -285,7 +318,7 @@ let windowsObserver = {
 					'}\n' +
 					':-moz-handler-clicktoplay .hoverBox:hover {\n' +
 					'	color: hsl(0,0%,20%) !important;\n' +
-					'\n';
+					'}\n';
 		} else {
 			let setBgColor = prefs.get('styles.customHoverBackgroundColor');
 			let setTColor= prefs.get('styles.customHoverTextColor');
@@ -294,82 +327,45 @@ let windowsObserver = {
 			if (!setTColor || setTColor == '')
 				setTColor = _prefs['defaultTextColor'];
 
-			cssStr = '\@namespace url(http://www.w3.org/1999/xhtml);\n' +
+			cssStr = '@namespace url(http://www.w3.org/1999/xhtml);\n' +
 					'@namespace xul url(http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul);\n' +
-					':-moz-handler-clicktoplay .mainBox:hover';
-			cssStr += ' {\n' +
+					':-moz-handler-clicktoplay .mainBox:hover {\n' +
 					'	background-color: ' + setBgColor + ' !important;\n' +
 					'}\n' +
-					':-moz-handler-clicktoplay .hoverBox:hover';
-			cssStr += ' {\n' +
+					':-moz-handler-clicktoplay .hoverBox:hover {\n' +
 					'	color: ' + setTColor + ' !important;\n' +
 					'}\n';
 		}
 
 		let hidePluginNotifications = prefs.get('styles.hidePluginNotifications', false);
 		if (hidePluginNotifications) {
-			let pluginHidden = '\n' +
+			cssStr += '\n' +
 					'xul|notification[value="plugin-hidden"] {\n'+
 					'	display: none !important;\n' +
 					'}\n';
-			cssStr += pluginHidden;
 		}
+
+		_dbg && console.log(LOG_PREFIX + '\n' + cssStr);
+
 		return Services.io.newURI('data:text/css,' + encodeURIComponent(cssStr), null, null);
-	}
-};
-
-function CTPpeChrome(window) {
-	this.init(window);
-}
-
-CTPpeChrome.prototype = {
-	window: null,
-
-	init: function(window) {
-		this.window = window;
-		let {gBrowser} = window;
-		window.addEventListener('unload', this, false);
-		gBrowser.addEventListener('PluginBindingAttached', this, true, true);
-		Services.obs.addObserver(this, 'uasad-ctppe' + SESSION_ID, false);
-
-		_dbg && console.log(LOG_PREFIX + 'CTPpeChrome.init()');
-	},
-	destroy: function(event) {
-		let {window} = this;
-		let {gBrowser} = window;;
-		window.removeEventListener('unload', this, false);
-		gBrowser.removeEventListener('PluginBindingAttached', this, true, true);
-		Services.obs.removeObserver(this, 'uasad-ctppe' + SESSION_ID, false);
-
-		this.window = null;
-
-		_dbg && console.log(LOG_PREFIX + 'CTPpeChrome.destroy()');
-	},
-	shutdown: function() {
-		this.destroy();
-
-		_dbg && console.log(LOG_PREFIX + 'CTPpeChrome.shutdown()');
 	},
 
-	observe: function(subject, topic, data) {
-		if (topic != 'uasad-ctppe' + SESSION_ID)
-			return;
-		if (data == 'shutdown')
-			this.shutdown();
-	},
 
-	handleEvent: function(event) {
-		switch (event.type) {
-			case 'unload':
-				this.destroy(event);
+	get dwu() {
+		delete this.dwu;
+		return this.dwu = Cc['@mozilla.org/inspector/dom-utils;1']
+			.getService(Ci.inIDOMUtils);
+	},
+	getTopWindow: function(event) {
+		let eventTarget = event.currentTarget || event.originalTarget || event.target;
+		let window = eventTarget.ownerDocument.defaultView.top;
+		for (;;) {
+			let browser = this.dwu.getParentForNode(window.document, true);
+			if (!browser)
 				break;
-			case 'PluginBindingAttached':
-				let {window} = this;
-				window.setTimeout(function() {
-					this.pluginBindingAttached(event);
-				}.bind(this), 1);
-				break;
+			window = browser.ownerDocument.defaultView.top;
 		}
+		return window;
 	},
 
 	// fallback
@@ -379,8 +375,12 @@ CTPpeChrome.prototype = {
 	},
 
 	pluginBindingAttached: function(event) {
-		let {window} = this;
-		let {gPluginHandler} = window;
+		let window = windowsObserver.getTopWindow(event);
+		window.setTimeout(function() {
+			this.pluginAttached(event, window);
+		}.bind(this), 50);
+	},
+	pluginAttached: function(event, window) {
 		let eventType = event.type;
 		if (eventType == 'PluginRemoved') {
 			return;
@@ -393,6 +393,7 @@ CTPpeChrome.prototype = {
 			// The plugin binding fires this event when it is created.
 			// As an untrusted event, ensure that this object actually has a binding
 			// and make sure we don't handle it twice
+			let {gPluginHandler} = window;
 			let overlay = gPluginHandler.getPluginUI(plugin, 'main') ||
 							this.getPluginUI(plugin, doc);
 			if (!overlay) {
@@ -406,15 +407,14 @@ CTPpeChrome.prototype = {
 			}
 		}
 		if (eventType == 'PluginClickToPlay') {
-			this._handleClickToPlayEvent(plugin);
+			this._handleClickToPlayEvent(plugin, window);
 		}
 
 		_dbg && console.log(LOG_PREFIX + 'CTPpeChrome.pluginBindingAttached()');
 	},
-	_handleClickToPlayEvent: function PH_handleClickToPlayEvent(aPlugin) {
-		let {window} = this;
-		let {gBrowser, gPluginHandler} = window;
+	_handleClickToPlayEvent: function PH_handleClickToPlayEvent(aPlugin, window) {
 		let doc = aPlugin.ownerDocument;
+		let {gPluginHandler, gBrowser} = window;
 		let browser = gBrowser.getBrowserForDocument(doc.defaultView.top.document);
 		let objLoadingContent = aPlugin.QueryInterface(Ci.nsIObjectLoadingContent);
 		// guard against giving pluginHost.getPermissionStringForType a type
@@ -425,17 +425,27 @@ CTPpeChrome.prototype = {
 							this.getPluginUI(aPlugin, doc);
 		if (overlay) {
 			this._overlayClickListener.CTPpe = this;
-			overlay.addEventListener('click', this._overlayClickListener, true);
+			overlay.addEventListener('click', windowsObserver._overlayClickListener, true);
 			if (windowsObserver.appVersion >= 27)
 				overlay.removeEventListener('click', gPluginHandler._overlayClickListener, true);
+			if (_prefs['showPluginUIEvenIfItsTooBig']) {
+				window.setTimeout(function() {
+					try {
+						if (gPluginHandler.isTooSmall && overlay &&
+								gPluginHandler.isTooSmall(aPlugin, overlay))
+							overlay.style.visibility = 'visible';
+					} catch (ex) {
+						console.error(LOG_PREFIX + ex);
+					}
+				}.bind(this), 100);
+			}
 		}
 
 		_dbg && console.log(LOG_PREFIX + 'CTPpeChrome._handleClickToPlayEvent()');
 	},
 	_overlayClickListener: {
 		handleEvent: function PH_handleOverlayClick(aEvent) {
-			let {CTPpe} = this;
-			let {window} = CTPpe;
+			let window = windowsObserver.getTopWindow(aEvent);
 			let {gBrowser, gPluginHandler, PopupNotifications, HTMLAnchorElement} = window;
 			let document = window.document;
 			let plugin = document.getBindingParent(aEvent.target);
@@ -449,7 +459,7 @@ CTPpeChrome.prototype = {
 			// If browser is null here, we've been drag-and-dropped from another
 			// window, and this is the wrong click handler.
 			if (!browser) {
-				aEvent.target.removeEventListener('click', CTPpe._overlayClickListener, true);
+				aEvent.target.removeEventListener('click', windowsObserver._overlayClickListener, true);
 				return;
 			}
 			let objLoadingContent = plugin.QueryInterface(Ci.nsIObjectLoadingContent);
@@ -628,7 +638,8 @@ let prefs = {
 
 let _prefs = {
 	'defaultBackgroundColor': 'rgb(142,142,142)',
-	'defaultTextColor': 'rgb(0,0,0)'
+	'defaultTextColor': 'rgb(0,0,0)',
+	'showPluginUIEvenIfItsTooBig': false
 };
 
 // Be careful, loggers always works until prefs aren't initialized

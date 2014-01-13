@@ -6,4 +6,6 @@ pref('extensions.uaSad@ClickToPlayPerElement.styles.customHoverTextColor', '');
 pref('extensions.uaSad@ClickToPlayPerElement.styles.useOldCSS', false);
 pref('extensions.uaSad@ClickToPlayPerElement.styles.hidePluginNotifications', false);
 
+pref('extensions.uaSad@ClickToPlayPerElement.showPluginUIEvenIfItsTooBig', false);
+
 pref('extensions.uaSad@ClickToPlayPerElement.debug', false);
