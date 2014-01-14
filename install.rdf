@@ -10,7 +10,7 @@
 
 		<!-- Front end metadata -->
 		<em:name>Click to Play per-element</em:name>
-		<em:version>0.0.4b10</em:version> <!-- 20140113 -->
+		<em:version>0.0.4b40</em:version> <!-- 20140114 -->
 		<em:description>Restore "Click to Play" ability of per-element for Firefox 24 and above.</em:description>
 		<em:creator>uaSad</em:creator>
 

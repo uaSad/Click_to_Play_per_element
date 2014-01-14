@@ -61,7 +61,7 @@ let windowsObserver = {
 			this.initWindow(window, reason);
 		}, this);
 		Services.ww.registerNotification(this);
-		if (prefs.get('styles.enabled'))
+		if (prefs.get('styles.enabled', true))
 				this.loadStyles();
 	},
 	destroy: function(reason) {
@@ -169,13 +169,13 @@ let windowsObserver = {
 			else
 				this.unloadStyles();
 		} else if (pName == 'styles.useOldCSS') {
-			if (prefs.get('styles.enabled'))
+			if (prefs.get('styles.enabled', true))
 				this.reloadStyles();
 		} else if (pName == 'styles.customHoverBackgroundColor' ||
 					pName == 'styles.customHoverTextColor') {
 			this.setColor(pName, pVal);
 		} else if (pName == 'styles.hidePluginNotifications') {
-			if (prefs.get('styles.enabled'))
+			if (prefs.get('styles.enabled', true))
 				this.reloadStyles();
 		} else if (pName == 'debug') {
 			_dbg = pVal;
@@ -233,7 +233,7 @@ let windowsObserver = {
 	},
 	setColor: function(pName, color) {
 		this.cancelResetAfterPause();
-		if (!prefs.get('styles.enabled'))
+		if (!prefs.get('styles.enabled', true))
 			return;
 		if (this.checkColor(color)) {
 			prefs.set(pName, color);
@@ -320,8 +320,8 @@ let windowsObserver = {
 					'	color: hsl(0,0%,20%) !important;\n' +
 					'}\n';
 		} else {
-			let setBgColor = prefs.get('styles.customHoverBackgroundColor');
-			let setTColor= prefs.get('styles.customHoverTextColor');
+			let setBgColor = prefs.get('styles.customHoverBackgroundColor', '');
+			let setTColor= prefs.get('styles.customHoverTextColor', '');
 			if (!setBgColor || setBgColor == '')
 				setBgColor = _prefs['defaultBackgroundColor'];
 			if (!setTColor || setTColor == '')
