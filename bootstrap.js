@@ -430,7 +430,6 @@ let windowsObserver = {
 		let overlay = gPluginHandler.getPluginUI(aPlugin, 'main') ||
 							this.getPluginUI(aPlugin, doc);
 		if (overlay) {
-			this._overlayClickListener.CTPpe = this;
 			overlay.addEventListener('click', windowsObserver._overlayClickListener, true);
 			if (windowsObserver.appVersion >= 27)
 				overlay.removeEventListener('click', gPluginHandler._overlayClickListener, true);
