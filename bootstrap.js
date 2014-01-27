@@ -22,7 +22,6 @@ const WINDOW_CLOSED = -2;
 const LOG_PREFIX = '[Click to Play per-element] ';
 const PREF_BRANCH = 'extensions.uaSad@ClickToPlayPerElement.';
 const PREF_FILE = 'chrome://uasadclicktoplayperelement/content/defaults/preferences/prefs.js';
-//const OLD_STYLE_FILE = 'chrome://uasadclicktoplayperelement/content/skin/media/oldclicktoplay.css';
 
 const {classes: Cc, interfaces: Ci, utils: Cu} = Components;
 Cu.import('resource://gre/modules/Services.jsm');
@@ -154,33 +153,38 @@ let windowsObserver = {
 	},
 	isTargetWindow: function(window) {
 		let {document} = window;
-		/*let rs = document.readyState;
+		let rs = document.readyState;
 		// We can't touch document.documentElement in not yet loaded window!
 		// See https://github.com/Infocatcher/Private_Tab/issues/61
 		if (rs != 'interactive' && rs != 'complete')
-			return false;*/
+			return false;
 		let winType = document.documentElement.getAttribute('windowtype');
 		return winType == 'navigator:browser';
 	},
 	prefChanged: function(pName, pVal) {
-		if (pName == 'styles.enabled') {
-			if (pVal)
-				this.loadStyles();
-			else
-				this.unloadStyles();
-		} else if (pName == 'styles.useOldCSS') {
-			if (prefs.get('styles.enabled', true))
-				this.reloadStyles();
-		} else if (pName == 'styles.customHoverBackgroundColor' ||
-					pName == 'styles.customHoverTextColor') {
-			this.setColor(pName, pVal);
-		} else if (pName == 'styles.hidePluginNotifications') {
-			if (prefs.get('styles.enabled', true))
-				this.reloadStyles();
-		} else if (pName == 'debug') {
-			_dbg = pVal;
-		} else if (pName == 'showPluginUIEvenIfItsTooBig') {
-			_prefs['showPluginUIEvenIfItsTooBig'] = pVal;
+		switch (pName) {
+			case 'styles.enabled':
+				if (pVal) {
+					this.loadStyles();
+				} else {
+					this.unloadStyles();
+				}
+				break;
+			case 'styles.useOldCSS':
+			case 'styles.hidePluginNotifications':
+				if (prefs.get('styles.enabled', true))
+					this.reloadStyles();
+				break;
+			case 'styles.customHoverBackgroundColor':
+			case 'styles.customHoverTextColor':
+				this.setColor(pName, pVal);
+				break;
+			case 'debug':
+				_dbg = pVal;
+				break;
+			case 'showPluginUIEvenIfItsTooBig':
+				_prefs['showPluginUIEvenIfItsTooBig'] = pVal;
+				break;
 		}
 	},
 
@@ -379,6 +383,8 @@ let windowsObserver = {
 		window.setTimeout(function() {
 			this.pluginAttached(event, window);
 		}.bind(this), 50);
+
+		_dbg && console.log(LOG_PREFIX + 'CTPpe.pluginBindingAttached()');
 	},
 	pluginAttached: function(event, window) {
 		let eventType = event.type;
@@ -410,7 +416,7 @@ let windowsObserver = {
 			this._handleClickToPlayEvent(plugin, window);
 		}
 
-		_dbg && console.log(LOG_PREFIX + 'CTPpeChrome.pluginBindingAttached()');
+		_dbg && console.log(LOG_PREFIX + 'CTPpe.pluginAttached()');
 	},
 	_handleClickToPlayEvent: function PH_handleClickToPlayEvent(aPlugin, window) {
 		let doc = aPlugin.ownerDocument;
@@ -441,7 +447,7 @@ let windowsObserver = {
 			}
 		}
 
-		_dbg && console.log(LOG_PREFIX + 'CTPpeChrome._handleClickToPlayEvent()');
+		_dbg && console.log(LOG_PREFIX + 'CTPpe._handleClickToPlayEvent()');
 	},
 	_overlayClickListener: {
 		handleEvent: function PH_handleOverlayClick(aEvent) {
@@ -489,7 +495,7 @@ let windowsObserver = {
 				aEvent.preventDefault();
 			}
 
-			_dbg && console.log(LOG_PREFIX + 'CTPpeChrome._overlayClickListener()');
+			_dbg && console.log(LOG_PREFIX + 'CTPpe._overlayClickListener()');
 		}
 	}
 };
@@ -528,6 +534,8 @@ let prefs = {
 		} catch (ex) {
 			console.error(LOG_PREFIX + ex);
 		}
+
+		_dbg && console.log(LOG_PREFIX + 'prefs.deletePrefsOnUninstall()');
  	},
 
 	loadDefaultPrefs: function() {
