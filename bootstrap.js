@@ -78,10 +78,12 @@ let windowsObserver = {
 	},
 
 	observe: function(subject, topic, data) {
-		if (topic == 'domwindowopened')
+		if (topic == 'domwindowopened') {
 			subject.addEventListener('load', this, false);
-		else if (topic == 'domwindowclosed')
+		}
+		else if (topic == 'domwindowclosed') {
 			this.destroyWindow(subject, WINDOW_CLOSED);
+		}
 	},
 
 	handleEvent: function(event) {
@@ -125,7 +127,8 @@ let windowsObserver = {
 			let {gBrowser} = window;
 			window.addEventListener('unload', this, false);
 			gBrowser.addEventListener('PluginBindingAttached', this, true, true);
-		} else {
+		}
+		else {
 			Cu.reportError(LOG_PREFIX + 'startup error: gPluginHandler');
 		}
 	},
@@ -166,7 +169,8 @@ let windowsObserver = {
 			case 'styles.enabled':
 				if (pVal) {
 					this.loadStyles();
-				} else {
+				}
+				else {
 					this.unloadStyles();
 				}
 				break;
@@ -179,11 +183,11 @@ let windowsObserver = {
 			case 'styles.customHoverTextColor':
 				this.setColor(pName, pVal);
 				break;
-			case 'debug':
-				_dbg = pVal;
-				break;
 			case 'showPluginUIEvenIfItsTooBig':
 				_prefs['showPluginUIEvenIfItsTooBig'] = pVal;
+				break;
+			case 'debug':
+				_dbg = pVal;
 				break;
 		}
 	},
@@ -242,9 +246,11 @@ let windowsObserver = {
 		if (this.checkColor(color)) {
 			prefs.set(pName, color);
 			this.reloadStyles();
-		} else if (color == '') {
+		}
+		else if (color == '') {
 			this.reloadStyles();
-		} else {
+		}
+		else {
 			this.setResetAfterPause(pName);
 		}
 	},
@@ -323,7 +329,8 @@ let windowsObserver = {
 					':-moz-handler-clicktoplay .hoverBox:hover {\n' +
 					'	color: hsl(0,0%,20%) !important;\n' +
 					'}\n';
-		} else {
+		}
+		else {
 			let setBgColor = prefs.get('styles.customHoverBackgroundColor', '');
 			let setTColor= prefs.get('styles.customHoverTextColor', '');
 			if (!setBgColor || setBgColor == '')
@@ -379,14 +386,16 @@ let windowsObserver = {
 	},
 
 	pluginBindingAttached: function(event) {
+		_dbg && console.log(LOG_PREFIX + 'CTPpe.pluginBindingAttached()');
+
 		let window = windowsObserver.getTopWindow(event);
 		window.setTimeout(function() {
 			this.pluginAttached(event, window);
 		}.bind(this), 50);
-
-		_dbg && console.log(LOG_PREFIX + 'CTPpe.pluginBindingAttached()');
 	},
 	pluginAttached: function(event, window) {
+		_dbg && console.log(LOG_PREFIX + 'CTPpe.pluginAttached()');
+
 		let eventType = event.type;
 		if (eventType == 'PluginRemoved') {
 			return;
@@ -415,10 +424,10 @@ let windowsObserver = {
 		if (eventType == 'PluginClickToPlay') {
 			this._handleClickToPlayEvent(plugin, window);
 		}
-
-		_dbg && console.log(LOG_PREFIX + 'CTPpe.pluginAttached()');
 	},
 	_handleClickToPlayEvent: function PH_handleClickToPlayEvent(aPlugin, window) {
+		_dbg && console.log(LOG_PREFIX + 'CTPpe._handleClickToPlayEvent()');
+
 		let doc = aPlugin.ownerDocument;
 		let {gPluginHandler, gBrowser} = window;
 		let browser = gBrowser.getBrowserForDocument(doc.defaultView.top.document);
@@ -439,17 +448,18 @@ let windowsObserver = {
 						if (gPluginHandler.isTooSmall && overlay &&
 								gPluginHandler.isTooSmall(aPlugin, overlay))
 							overlay.style.visibility = 'visible';
-					} catch (ex) {
+					}
+					catch (ex) {
 						console.error(LOG_PREFIX + ex);
 					}
 				}.bind(this), 100);
 			}
 		}
-
-		_dbg && console.log(LOG_PREFIX + 'CTPpe._handleClickToPlayEvent()');
 	},
 	_overlayClickListener: {
 		handleEvent: function PH_handleOverlayClick(aEvent) {
+			_dbg && console.log(LOG_PREFIX + 'CTPpe._overlayClickListener()');
+
 			let window = windowsObserver.getTopWindow(aEvent);
 			let {gBrowser, gPluginHandler, PopupNotifications, HTMLAnchorElement} = window;
 			let document = window.document;
@@ -486,15 +496,14 @@ let windowsObserver = {
 							}
 						}.bind(this), 1);
 					}
-				} else {
+				}
+				else {
 					if (windowsObserver.appVersion >= 27)
 						gPluginHandler._showClickToPlayNotification(browser, plugin);
 				}
 				aEvent.stopPropagation();
 				aEvent.preventDefault();
 			}
-
-			_dbg && console.log(LOG_PREFIX + 'CTPpe._overlayClickListener()');
 		}
 	}
 };
@@ -528,16 +537,19 @@ let prefs = {
 	},
 
 	deletePrefsOnUninstall: function() {
+		_dbg && console.log(LOG_PREFIX + 'prefs.deletePrefsOnUninstall()');
+
 		try {
 			Services.prefs.deleteBranch(this.ns);
-		} catch (ex) {
+		}
+		catch (ex) {
 			console.error(LOG_PREFIX + ex);
 		}
-
-		_dbg && console.log(LOG_PREFIX + 'prefs.deletePrefsOnUninstall()');
  	},
 
 	loadDefaultPrefs: function() {
+		_dbg && console.log(LOG_PREFIX + 'prefs.loadDefaultPrefs()');
+
 		let defaultBranch = Services.prefs.getDefaultBranch('');
 		let prefsFile = PREF_FILE;
 		let prefs = this;
@@ -555,8 +567,6 @@ let prefs = {
 			}
 		};
 		Services.scriptloader.loadSubScript(prefsFile, scope);
-
-		_dbg && console.log(LOG_PREFIX + 'prefs.loadDefaultPrefs()');
 	},
 
 	_cache: { __proto__: null },
@@ -629,7 +639,8 @@ let prefs = {
 		pName = this.ns + pName;
 		try {
 			ps.clearUserPref(pName);
-		} catch (ex) {
+		}
+		catch (ex) {
 			// The pref service throws NS_ERROR_UNEXPECTED when the caller tries
 			// to reset a pref that doesn't exist or is already set to its default
 			// value.  This interface fails silently in those cases, so callers
